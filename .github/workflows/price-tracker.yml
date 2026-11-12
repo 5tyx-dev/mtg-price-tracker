@@ -19,5 +19,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Test MTGJSON connection
+      - name: Generate Card Kingdom pricing CSV
         run: python scripts/price_tracker.py
+
+      - name: Upload pricing CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: ck-prices-test
+          path: output/ck_prices_test.csv
+          if-no-files-found: error
+          retention-days: 7
