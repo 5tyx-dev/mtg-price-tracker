@@ -2,7 +2,10 @@ name: MTG Price Tracker
 
 on:
   workflow_dispatch:
-
+  schedule:
+    - cron: '0 9 * * 1'
+      timezone: 'America/Chicago'
+      
 permissions:
   contents: write
 
