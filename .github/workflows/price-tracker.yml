@@ -22,10 +22,27 @@ jobs:
       - name: Generate Card Kingdom pricing CSV
         run: python scripts/price_tracker.py
 
-      - name: Upload pricing CSV
+      - name: Upload pricing CSV artifact
         uses: actions/upload-artifact@v4
         with:
           name: ck-prices-test
           path: output/ck_prices_test.csv
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish pricing CSV to repository
+        run: |
+          mkdir -p data
+          cp output/ck_prices_test.csv data/ck_prices.csv
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add data/ck_prices.csv
+
+          if git diff --cached --quiet; then
+            echo "Pricing data unchanged."
+          else
+            git commit -m "Update Card Kingdom pricing data"
+            git push
+          fi
