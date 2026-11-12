@@ -6,7 +6,7 @@ PRICES_URL = "https://mtgjson.com/api/v5/AllPricesToday.json"
 
 def main():
     print("MTG Price Tracker")
-    print("Inspecting MTGJSON pricing structure...")
+    print("Searching for Card Kingdom nonfoil retail prices...")
 
     request = Request(
         PRICES_URL,
@@ -17,17 +17,36 @@ def main():
         payload = json.load(response)
 
     cards = payload["data"]
+    matching = 0
+    examples = []
 
-    print("Total pricing records:", len(cards))
+    for uuid, record in cards.items():
+        prices = (
+            record.get("paper", {})
+            .get("cardkingdom", {})
+            .get("retail", {})
+            .get("normal", {})
+        )
 
-    # Inspect the structure of one card's pricing record.
-    first_uuid = next(iter(cards))
-    sample = cards[first_uuid]
+        if not prices:
+            continue
 
-    print("Sample UUID:", first_uuid)
-    print("Available fields:", list(sample.keys()))
-    print("Sample pricing record:")
-    print(json.dumps(sample, indent=2)[:5000])
+        matching += 1
+
+        if len(examples) < 5:
+            latest_date = max(prices)
+            examples.append({
+                "uuid": uuid,
+                "date": latest_date,
+                "price": prices[latest_date],
+            })
+
+    print("Total printing records:", len(cards))
+    print("Printings with CK nonfoil retail prices:", matching)
+    print("Sample prices:")
+
+    for example in examples:
+        print(json.dumps(example, indent=2))
 
 
 if __name__ == "__main__":
