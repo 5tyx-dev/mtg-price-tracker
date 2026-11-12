@@ -1,68 +1,91 @@
 import json
-import tempfile
-import time
 from urllib.request import Request, urlopen
 
 PRINTINGS_URL = "https://mtgjson.com/api/v5/AllPrintings.json"
+PRICES_URL = "https://mtgjson.com/api/v5/AllPricesToday.json"
+
+TEST_CARDS = {
+    "Abdel Adrian, Gorion's Ward",
+    "Lae'zel, Vlaakith's Champion",
+    "Cloudshift",
+}
+
+
+def download_json(url):
+    request = Request(
+        url,
+        headers={"User-Agent": "MTGPriceTracker/1.0"},
+    )
+    with urlopen(request, timeout=180) as response:
+        return json.load(response)["data"]
 
 
 def main():
-    print("MTG Price Tracker")
-    print("Testing MTGJSON AllPrintings download...", flush=True)
+    print("MTG Price Tracker", flush=True)
 
-    request = Request(
-        PRINTINGS_URL,
-        headers={"User-Agent": "MTGPriceTracker/1.0"},
-    )
+    print("Downloading Card Kingdom pricing...", flush=True)
+    prices = download_json(PRICES_URL)
 
-    start = time.monotonic()
-    total_bytes = 0
+    print("Downloading printing information...", flush=True)
+    sets = download_json(PRINTINGS_URL)
 
-    with tempfile.TemporaryFile() as downloaded:
-        with urlopen(request, timeout=180) as response:
-            print("HTTP status:", response.status, flush=True)
+    # Find relevant nonfoil printings.
+    matches = {}
 
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
+    for set_code, set_data in sets.items():
+        for card in set_data.get("cards", []):
+            name = card.get("name")
 
-                downloaded.write(chunk)
-                total_bytes += len(chunk)
+            if name not in TEST_CARDS:
+                continue
 
-        print(
-            f"Downloaded {total_bytes / (1024 * 1024):.1f} MiB",
-            flush=True,
+            if "nonfoil" not in card.get("finishes", []):
+                continue
+
+            uuid = card.get("uuid")
+            record = prices.get(uuid, {})
+
+            retail = (
+                record.get("paper", {})
+                .get("cardkingdom", {})
+                .get("retail", {})
+                .get("normal", {})
+            )
+
+            if not retail:
+                continue
+
+            latest_date = max(retail)
+            price = retail[latest_date]
+
+            if not isinstance(price, (int, float)) or price <= 0:
+                continue
+
+            matches.setdefault(name, []).append({
+                "set": set_code,
+                "number": card.get("number"),
+                "price": price,
+                "uuid": uuid,
+            })
+
+    print("\nCHEAPEST NONFOIL PRINTINGS", flush=True)
+
+    for name in sorted(TEST_CARDS):
+        options = matches.get(name, [])
+
+        if not options:
+            print(f"\n{name}: No CK nonfoil price found")
+            continue
+
+        cheapest = min(
+            options,
+            key=lambda item: (item["price"], item["set"], str(item["number"])),
         )
 
-        downloaded.seek(0)
-        payload = json.load(downloaded)
-
-    sets = payload["data"]
-
-    print("JSON validation successful!", flush=True)
-    print("Total sets:", len(sets))
-
-    # Inspect one card without printing the entire dataset.
-    first_set_code = next(iter(sets))
-    first_set = sets[first_set_code]
-    first_card = first_set["cards"][0]
-
-    print("Sample set code:", first_set_code)
-    print("Sample card fields:", list(first_card.keys()))
-    print("Sample card:")
-    print(json.dumps({
-        "name": first_card.get("name"),
-        "uuid": first_card.get("uuid"),
-        "number": first_card.get("number"),
-        "finishes": first_card.get("finishes"),
-        "isAlternative": first_card.get("isAlternative"),
-    }, indent=2))
-
-    print(
-        f"Elapsed time: {time.monotonic() - start:.1f} seconds",
-        flush=True,
-    )
+        print(f"\n{name}")
+        print(f"  Printing: {cheapest['set']} #{cheapest['number']}")
+        print(f"  CK retail: ${cheapest['price']:.2f}")
+        print(f"  Matching printings: {len(options)}")
 
 
 if __name__ == "__main__":
