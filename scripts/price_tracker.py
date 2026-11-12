@@ -6,12 +6,7 @@ from urllib.request import Request, urlopen
 PRINTINGS_URL = "https://mtgjson.com/api/v5/AllPrintings.json"
 PRICES_URL = "https://mtgjson.com/api/v5/AllPricesToday.json"
 
-TEST_CARDS = {
-    "Abdel Adrian, Gorion's Ward",
-    "Lae'zel, Vlaakith's Champion",
-    "Cloudshift",
-}
-
+INPUT_FILE = Path("data/card_names.csv")
 OUTPUT_FILE = Path("output/ck_prices_test.csv")
 
 
@@ -20,12 +15,49 @@ def download_json(url):
         url,
         headers={"User-Agent": "MTGPriceTracker/1.0"},
     )
+
     with urlopen(request, timeout=180) as response:
         return json.load(response)["data"]
 
 
+def load_card_names():
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(
+            f"Card list not found: {INPUT_FILE}"
+        )
+
+    with INPUT_FILE.open(
+        "r", newline="", encoding="utf-8-sig"
+    ) as file:
+        reader = csv.DictReader(file)
+
+        if reader.fieldnames != ["Card Name"]:
+            raise ValueError(
+                "Expected a CSV with one column: Card Name"
+            )
+
+        names = {
+            row["Card Name"].strip()
+            for row in reader
+            if row["Card Name"] and row["Card Name"].strip()
+        }
+
+    if not names:
+        raise ValueError("Card list is empty.")
+
+    return names
+
+
 def main():
     print("MTG Price Tracker", flush=True)
+
+    # Read unique card names from Google Sheets export.
+    card_names = load_card_names()
+
+    print(
+        f"Unique cards requested: {len(card_names)}",
+        flush=True,
+    )
 
     print("Downloading Card Kingdom pricing...", flush=True)
     prices = download_json(PRICES_URL)
@@ -39,7 +71,7 @@ def main():
         for card in set_data.get("cards", []):
             name = card.get("name")
 
-            if name not in TEST_CARDS:
+            if name not in card_names:
                 continue
 
             if "nonfoil" not in card.get("finishes", []):
@@ -61,24 +93,32 @@ def main():
             latest_date = max(retail)
             price = retail[latest_date]
 
-            if not isinstance(price, (int, float)) or price <= 0:
+            if (
+                not isinstance(price, (int, float))
+                or isinstance(price, bool)
+                or price <= 0
+            ):
                 continue
 
             matches.setdefault(name, []).append({
                 "name": name,
                 "set": set_code,
-                "number": card.get("number"),
+                "number": card.get("number", ""),
                 "uuid": uuid,
                 "price": price,
             })
 
-    # Choose the cheapest printing for each card.
+    # Choose the cheapest nonfoil printing per card.
     cheapest_cards = []
+    missing_cards = []
 
-    for name in sorted(TEST_CARDS):
+    print("\nCHEAPEST NONFOIL PRINTINGS", flush=True)
+
+    for name in sorted(card_names):
         options = matches.get(name, [])
 
         if not options:
+            missing_cards.append(name)
             print(f"No CK price found: {name}", flush=True)
             continue
 
@@ -100,8 +140,11 @@ def main():
             flush=True,
         )
 
-    # Export the results to a CSV file.
-    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # Export prices using our existing five-column format.
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     with OUTPUT_FILE.open(
         "w", newline="", encoding="utf-8"
@@ -125,8 +168,11 @@ def main():
                 f"{card['price']:.2f}",
             ])
 
-    print(f"CSV created: {OUTPUT_FILE}", flush=True)
+    print("\nEXPORT SUMMARY", flush=True)
+    print(f"Cards requested: {len(card_names)}", flush=True)
     print(f"Cards exported: {len(cheapest_cards)}", flush=True)
+    print(f"Cards without CK prices: {len(missing_cards)}", flush=True)
+    print(f"CSV created: {OUTPUT_FILE}", flush=True)
 
 
 if __name__ == "__main__":
