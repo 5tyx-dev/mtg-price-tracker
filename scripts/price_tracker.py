@@ -1,52 +1,68 @@
 import json
+import tempfile
+import time
 from urllib.request import Request, urlopen
 
-PRICES_URL = "https://mtgjson.com/api/v5/AllPricesToday.json"
+PRINTINGS_URL = "https://mtgjson.com/api/v5/AllPrintings.json"
 
 
 def main():
     print("MTG Price Tracker")
-    print("Searching for Card Kingdom nonfoil retail prices...")
+    print("Testing MTGJSON AllPrintings download...", flush=True)
 
     request = Request(
-        PRICES_URL,
+        PRINTINGS_URL,
         headers={"User-Agent": "MTGPriceTracker/1.0"},
     )
 
-    with urlopen(request, timeout=120) as response:
-        payload = json.load(response)
+    start = time.monotonic()
+    total_bytes = 0
 
-    cards = payload["data"]
-    matching = 0
-    examples = []
+    with tempfile.TemporaryFile() as downloaded:
+        with urlopen(request, timeout=180) as response:
+            print("HTTP status:", response.status, flush=True)
 
-    for uuid, record in cards.items():
-        prices = (
-            record.get("paper", {})
-            .get("cardkingdom", {})
-            .get("retail", {})
-            .get("normal", {})
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+
+                downloaded.write(chunk)
+                total_bytes += len(chunk)
+
+        print(
+            f"Downloaded {total_bytes / (1024 * 1024):.1f} MiB",
+            flush=True,
         )
 
-        if not prices:
-            continue
+        downloaded.seek(0)
+        payload = json.load(downloaded)
 
-        matching += 1
+    sets = payload["data"]
 
-        if len(examples) < 5:
-            latest_date = max(prices)
-            examples.append({
-                "uuid": uuid,
-                "date": latest_date,
-                "price": prices[latest_date],
-            })
+    print("JSON validation successful!", flush=True)
+    print("Total sets:", len(sets))
 
-    print("Total printing records:", len(cards))
-    print("Printings with CK nonfoil retail prices:", matching)
-    print("Sample prices:")
+    # Inspect one card without printing the entire dataset.
+    first_set_code = next(iter(sets))
+    first_set = sets[first_set_code]
+    first_card = first_set["cards"][0]
 
-    for example in examples:
-        print(json.dumps(example, indent=2))
+    print("Sample set code:", first_set_code)
+    print("Sample card fields:", list(first_card.keys()))
+    print("Sample card:")
+    print(json.dumps({
+        "name": first_card.get("name"),
+        "uuid": first_card.get("uuid"),
+        "number": first_card.get("number"),
+        "finishes": first_card.get("finishes"),
+        "isAlternative": first_card.get("isAlternative"),
+    }, indent=2))
+
+    print(
+        f"Elapsed time: {time.monotonic() - start:.1f} seconds",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
