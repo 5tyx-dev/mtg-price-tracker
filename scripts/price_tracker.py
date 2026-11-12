@@ -1,4 +1,6 @@
+import csv
 import json
+from pathlib import Path
 from urllib.request import Request, urlopen
 
 PRINTINGS_URL = "https://mtgjson.com/api/v5/AllPrintings.json"
@@ -9,6 +11,8 @@ TEST_CARDS = {
     "Lae'zel, Vlaakith's Champion",
     "Cloudshift",
 }
+
+OUTPUT_FILE = Path("output/ck_prices_test.csv")
 
 
 def download_json(url):
@@ -29,7 +33,6 @@ def main():
     print("Downloading printing information...", flush=True)
     sets = download_json(PRINTINGS_URL)
 
-    # Find relevant nonfoil printings.
     matches = {}
 
     for set_code, set_data in sets.items():
@@ -62,30 +65,68 @@ def main():
                 continue
 
             matches.setdefault(name, []).append({
+                "name": name,
                 "set": set_code,
                 "number": card.get("number"),
-                "price": price,
                 "uuid": uuid,
+                "price": price,
             })
 
-    print("\nCHEAPEST NONFOIL PRINTINGS", flush=True)
+    # Choose the cheapest printing for each card.
+    cheapest_cards = []
 
     for name in sorted(TEST_CARDS):
         options = matches.get(name, [])
 
         if not options:
-            print(f"\n{name}: No CK nonfoil price found")
+            print(f"No CK price found: {name}", flush=True)
             continue
 
         cheapest = min(
             options,
-            key=lambda item: (item["price"], item["set"], str(item["number"])),
+            key=lambda item: (
+                item["price"],
+                item["set"],
+                str(item["number"]),
+            ),
         )
 
-        print(f"\n{name}")
-        print(f"  Printing: {cheapest['set']} #{cheapest['number']}")
-        print(f"  CK retail: ${cheapest['price']:.2f}")
-        print(f"  Matching printings: {len(options)}")
+        cheapest_cards.append(cheapest)
+
+        print(
+            f"{name}: {cheapest['set']} "
+            f"#{cheapest['number']} - "
+            f"${cheapest['price']:.2f}",
+            flush=True,
+        )
+
+    # Export the results to a CSV file.
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    with OUTPUT_FILE.open(
+        "w", newline="", encoding="utf-8"
+    ) as file:
+        writer = csv.writer(file)
+
+        writer.writerow([
+            "Card Name",
+            "Set Code",
+            "Collector Number",
+            "MTGJSON UUID",
+            "CK Nonfoil USD",
+        ])
+
+        for card in cheapest_cards:
+            writer.writerow([
+                card["name"],
+                card["set"],
+                card["number"],
+                card["uuid"],
+                f"{card['price']:.2f}",
+            ])
+
+    print(f"CSV created: {OUTPUT_FILE}", flush=True)
+    print(f"Cards exported: {len(cheapest_cards)}", flush=True)
 
 
 if __name__ == "__main__":
